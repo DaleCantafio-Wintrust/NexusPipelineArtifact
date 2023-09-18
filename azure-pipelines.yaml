@@ -1,0 +1,107 @@
+trigger:
+  batch: true
+  branches:
+    include:
+    - master
+pr:
+  - master
+variables:
+  MajorVersion : 1
+  MinorVersion : 0
+  PatchVersion : $[counter(format('nexus-extension-{0}.{1}.{2}',variables['Build.SourceBranchName'],variables['MajorVersion'],variables['MinorVersion']), 156)]
+  isPR : $[startsWith(variables['Build.SourceBranch'],'refs/pull/')] 
+  isMain : $[startsWith(variables['Build.SourceBranch'],'refs/heads/master')] 
+stages:
+  - stage : build_package
+    displayName: Build & Package Extension
+    jobs:
+      - job : build_package
+        displayName: Build & Package Extension
+        pool:
+          vmImage: 'windows-latest'
+        steps:
+        - checkout: self
+          persistCredentials: true
+          clean: true
+        - task: NodeTool@0
+          inputs:
+            versionSpec: '12.x'
+          displayName: 'Install Node.js'
+        - script: npm install -g tfx-cli
+          displayName: 'Install Node CLI for Azure DevOps'
+          enabled: false
+        - script: |
+            npm install
+          displayName: 'Install Dependencies Nexus-v2 Lib'
+          workingDirectory: $(Build.SourcesDirectory)\libs\nexus-v2
+        - script: |            
+            npm run build
+          displayName: 'Build Nexus-v2 Lib'
+          workingDirectory: $(Build.SourcesDirectory)\libs\nexus-v2
+        - script: |            
+            npm link
+          displayName: 'Link Nexus-v2 Lib'
+          workingDirectory: $(Build.SourcesDirectory)\libs\nexus-v2
+        - script: |
+            npm install
+          displayName: 'Install Dependencies Nexus-v3 Lib'
+          workingDirectory: $(Build.SourcesDirectory)\libs\nexus-v3
+        - script: |
+            npm run build
+          displayName: 'Build Nexus-v3 Lib'
+          workingDirectory: $(Build.SourcesDirectory)\libs\nexus-v3
+        - script: |            
+            npm link
+          displayName: 'Link Nexus-v3 Lib'
+          workingDirectory: $(Build.SourcesDirectory)\libs\nexus-v3
+        - script: npm install
+          displayName: 'Install Dependencies'
+          workingDirectory: $(Build.SourcesDirectory)
+        - script: npm run lint
+          displayName: 'Run ESLint'
+          workingDirectory: $(Build.SourcesDirectory)
+          condition: eq(variables.isPR, true)
+        - script: |
+            npm run build
+          condition: eq(variables.isPR, true)
+          displayName: 'Build Server & Service'
+        - script: |
+            npm run package:Server2018VSIX -- --override {\"version\": \"$(MajorVersion).$(MinorVersion).$(PatchVersion)\"}            
+          displayName: 'Build & Package Server'
+          workingDirectory: $(Build.SourcesDirectory)
+          condition: eq(variables.isMain, true)
+        - script: |
+            npm run package:ServiceVSIX -- --override {\"version\": \"$(MajorVersion).$(MinorVersion).$(PatchVersion)\"}
+          displayName: 'Build & Package Service'
+          workingDirectory: $(Build.SourcesDirectory)
+          condition: eq(variables.isMain, true)
+        - task: PowerShell@2
+          displayName: 'Tag Git Commit'
+          condition: eq(variables.isMain, true)
+          inputs:
+            targetType: 'inline'
+            script: |
+              git tag "v$(MajorVersion).$(MinorVersion).$(PatchVersion)"
+            workingDirectory: $(Build.SourcesDirectory)
+        - task: PowerShell@2
+          displayName: 'Push Git Tags'
+          condition: eq(variables.isMain, true)
+          inputs:
+            targetType: 'inline'
+            script: |
+              git push --tags
+            workingDirectory: $(Build.SourcesDirectory)
+        - task: GitHubRelease@1
+          displayName: 'Publish Extension as Release'
+          condition: eq(variables.isMain, true)
+          inputs:
+            gitHubConnection: 'github.com_keyoke'
+            repositoryName: '$(Build.Repository.Name)'
+            action: 'create'
+            target: '$(Build.SourceVersion)'
+            tagSource: 'gitTag'
+            tagPattern: 'v$(MajorVersion).$(MinorVersion).$(PatchVersion)'
+            assets: '$(System.DefaultWorkingDirectory)\dist\*.vsix'
+            changeLogCompareToRelease: 'lastFullRelease'
+            changeLogType: 'commitBased'            
+  
