@@ -6,7 +6,7 @@
   "author": "Gareth Emslie",
   "license": "MIT",
   "dependencies": {
-    "azure-pipelines-task-lib": "^2.9.3",
+    "azure-pipelines-task-lib": "^5.0.0-preview.0",
     "fs": "0.0.1-security",
     "path": "^0.12.7",
     "shelljs": "^0.8.5",
